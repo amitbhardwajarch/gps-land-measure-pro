@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>GPS Land Measure Pro</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+<style>
+:root {
+  --primary: #00d4aa;
+  --primary-dark: #00a882;
+  --accent: #ff6b35;
+  --accent2: #ffd700;
+  --bg-dark: #0a0e1a;
+  --bg-panel: rgba(10,14,26,0.93);
+  --bg-card: rgba(14,20,38,0.96);
+  --border: rgba(0,212,170,0.22);
+  --border-bright: rgba(0,212,170,0.55);
+  --text: #e8f4f0;
+  --text-dim: rgba(232,244,240,0.55);
+  --text-bright: #ffffff;
+  --danger: #ff4757;
+  --warning: #ffa502;
+  --success: #2ed573;
+  --shadow: 0 4px 24px rgba(0,0,0,0.65);
+  --shadow-glow: 0 0 20px rgba(0,212,170,0.22);
+  --font: 'Rajdhani', sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+  --r: 12px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { width:100%; height:100%; overflow:hidden; background:var(--bg-dark); font-family:var(--font); color:var(--text); }
+
+#map { position:absolute; inset:0; z-index:0; cursor:crosshair !important; }
+.leaflet-container { cursor:crosshair !important; }
+.leaflet-control-attribution { font-size:9px !important; opacity:0.4; background:rgba(0,0,0,0.4)!important; color:#aaa!important; }
+.leaflet-control-zoom { display:none !important; }
+
+/* Marker */
+.mm {
+  display:flex; align-items:center; justify-content:center;
+  width:28px; height:28px; border-radius:50%;
+  background:var(--primary); border:2.5px solid #fff;
+  color:#0a0e1a; font-family:var(--font); font-weight:700; font-size:12px;
+  box-shadow:0 2px 12px rgba(0,212,170,0.5),0 0 0 4px rgba(0,212,170,0.12);
+  cursor:pointer; transition:transform 0.15s;
+}
+.mm:hover { transform:scale(1.15); }
+.mm.sel { background:var(--accent); box-shadow:0 2px 12px rgba(255,107,53,0.6); }
+.mm.delmode { border-color:#ff4757; background:#ff4757; box-shadow:0 2px 12px rgba(255,71,87,0.5); }
+
+/* Labels */
+.dist-lbl {
+  background:rgba(10,14,26,0.88)!important; border:1px solid rgba(0,212,170,0.5)!important;
+  color:var(--primary)!important; font-family:var(--mono)!important; font-size:10px!important;
+  padding:2px 6px!important; border-radius:4px!important; white-space:nowrap!important; font-weight:500!important;
+  box-shadow:0 2px 8px rgba(0,0,0,0.5)!important; pointer-events:none!important;
+}
+.ang-lbl {
+  background:rgba(10,14,26,0.88)!important; border:1px solid rgba(255,215,0,0.35)!important;
+  color:var(--accent2)!important; font-family:var(--mono)!important; font-size:10px!important;
+  padding:2px 5px!important; border-radius:4px!important; white-space:nowrap!important; pointer-events:none!important;
+}
+.dist-lbl::before, .dist-lbl::after, .ang-lbl::before, .ang-lbl::after { display:none!important; }
+
+/* TopBar */
+#topbar {
+  position:absolute; top:0; left:0; right:0; z-index:1000;
+  padding:10px 10px 0; display:flex; gap:8px; align-items:flex-start;
+}
+.icon-btn {
+  width:42px; height:42px; border-radius:var(--r); flex-shrink:0;
+  background:var(--bg-card); border:1px solid var(--border); color:var(--text);
+  cursor:pointer; display:flex; align-items:center; justify-content:center;
+  font-size:18px; box-shadow:var(--shadow); transition:all 0.15s ease;
+  font-family:var(--font);
+}
+.icon-btn:hover { border-color:var(--border-bright); }
+.icon-btn.active { background:rgba(0,212,170,0.15); border-color:var(--primary); }
+
+#search-wrap { flex:1; position:relative; }
+#search-box {
+  display:flex; align-items:center; background:var(--bg-card);
+  border:1px solid var(--border); border-radius:var(--r);
+  overflow:hidden; box-shadow:var(--shadow);
+}
+#search-icon { padding:0 10px; color:var(--primary); font-size:16px; flex-shrink:0; }
+#search-input {
+  flex:1; background:none; border:none; outline:none; color:var(--text);
+  font-family:var(--font); font-size:15px; padding:10px 0; letter-spacing:0.02em;
+}
+#search-input::placeholder { color:var(--text-dim); }
+#search-clear { padding:0 10px; background:none; border:none; color:var(--text-dim); cursor:pointer; font-size:18px; }
+#search-results {
+  position:absolute; top:calc(100% + 4px); left:0; right:0;
+  background:var(--bg-card); border:1px solid var(--border); border-radius:var(--r);
+  box-shadow:var(--shadow); overflow:hidden; z-index:2000; display:none;
+  animation:fadeIn 0.15s ease;
+}
+.sr-item {
+  padding:10px 14px; border-bottom:1px solid rgba(0,212,170,0.07);
+  cursor:pointer; font-size:13px;
+}
+.sr-item:hover { background:rgba(0,212,170,0.08); }
+.sr-name { font-weight:600; margin-bottom:2px; }
+.sr-sub { color:var(--text-dim); font-size:11px; }
+
+/* Layer dropdown */
+#layer-wrap { position:relative; }
+#layer-dropdown {
+  position:absolute; top:calc(100% + 6px); right:0;
+  background:var(--bg-card); border:1px solid var(--border); border-radius:var(--r);
+  overflow:hidden; box-shadow:var(--shadow); min-width:130px;
+  display:none; animation:fadeIn 0.15s ease; z-index:2000;
+}
+.layer-item {
+  display:flex; align-items:center; gap:8px; padding:10px 14px;
+  cursor:pointer; font-size:14px; font-family:var(--font);
+}
+.layer-item:hover { background:rgba(0,212,170,0.08); }
+.layer-item.active { color:var(--primary); background:rgba(0,212,170,0.1); font-weight:700; }
+
+/* Right tool panel */
+#tools {
+  position:absolute; right:10px; top:50%; transform:translateY(-50%);
+  display:flex; flex-direction:column; gap:6px; z-index:1000;
+}
+.tool-btn {
+  width:46px; height:46px; border-radius:10px;
+  background:var(--bg-card); border:1px solid var(--border);
+  color:var(--text); cursor:pointer;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:1px; box-shadow:var(--shadow); transition:all 0.15s ease;
+  font-family:var(--font); font-size:18px;
+}
+.tool-btn:disabled { opacity:0.3; cursor:not-allowed; }
+.tool-btn:not(:disabled):hover { border-color:var(--border-bright); transform:scale(1.04); }
+.tool-btn .tlbl { font-size:9px; letter-spacing:0.05em; opacity:0.65; }
+.tool-btn.danger { color:var(--danger); }
+.tool-btn.warn { color:var(--warning); }
+.tool-btn.primary { color:var(--primary); }
+.tool-btn.gold { color:var(--accent2); }
+.tool-btn.active { background:rgba(0,212,170,0.12); border-color:var(--primary); }
+.tool-sep { height:1px; background:rgba(0,212,170,0.12); margin:4px 0; }
+
+/* Measure panel */
+#measure-panel {
+  position:absolute; bottom:80px; left:10px; z-index:1000;
+  background:var(--bg-card); border:1px solid var(--border-bright);
+  border-radius:14px; padding:12px 16px; min-width:192px;
+  box-shadow:var(--shadow),var(--shadow-glow);
+  animation:fadeIn 0.2s ease; display:none;
+}
+.mp-header {
+  display:flex; align-items:center; gap:6px; margin-bottom:10px;
+  border-bottom:1px solid var(--border); padding-bottom:8px;
+}
+.mp-title { font-weight:700; font-size:13px; color:var(--primary); letter-spacing:0.07em; text-transform:uppercase; }
+.mp-badge {
+  margin-left:auto; background:var(--primary); color:var(--bg-dark);
+  border-radius:6px; padding:1px 7px; font-size:11px; font-weight:700; font-family:var(--mono);
+}
+.metric { display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-bottom:7px; }
+.m-lbl { font-size:10px; font-family:var(--font); letter-spacing:0.08em; color:var(--text-dim); font-weight:600; flex-shrink:0; text-transform:uppercase; }
+.m-val { font-family:var(--mono); font-size:12px; font-weight:500; color:var(--text); text-align:right; }
+.m-val.big { font-size:14px; font-weight:700; color:var(--primary); }
+.mp-sep { height:1px; background:var(--border); margin:3px 0 7px; }
+
+/* Coord drawer */
+#coord-drawer {
+  position:absolute; bottom:0; left:0; right:0; z-index:1100;
+  background:var(--bg-card); border-top:1px solid var(--border-bright);
+  border-radius:16px 16px 0 0; box-shadow:0 -4px 30px rgba(0,0,0,0.5);
+  max-height:45vh; display:flex; flex-direction:column;
+  animation:slideUp 0.25s ease; display:none;
+}
+#saved-drawer {
+  position:absolute; bottom:0; left:0; right:0; z-index:1100;
+  background:var(--bg-card); border-top:1px solid rgba(255,215,0,0.3);
+  border-radius:16px 16px 0 0; box-shadow:0 -4px 30px rgba(0,0,0,0.5);
+  max-height:55vh; display:flex; flex-direction:column;
+  animation:slideUp 0.25s ease; display:none;
+}
+.drawer-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 16px 8px; flex-shrink:0; border-bottom:1px solid var(--border);
+}
+.drawer-title { font-weight:700; font-size:14px; letter-spacing:0.06em; text-transform:uppercase; }
+.drawer-close {
+  background:none; border:none; color:var(--text-dim); cursor:pointer;
+  font-size:22px; width:28px; height:28px; display:flex; align-items:center; justify-content:center;
+}
+.drawer-body { overflow-y:auto; flex:1; }
+.coord-head {
+  display:grid; grid-template-columns:28px 1fr 1fr; gap:8px;
+  padding:6px 16px; border-bottom:1px solid rgba(0,212,170,0.07);
+  flex-shrink:0;
+}
+.ch { font-size:10px; font-weight:700; color:var(--text-dim); letter-spacing:0.08em; text-transform:uppercase; font-family:var(--font); }
+.coord-row {
+  display:grid; grid-template-columns:28px 1fr 1fr; gap:8px;
+  padding:8px 16px; border-bottom:1px solid rgba(0,212,170,0.04);
+  cursor:pointer; transition:background 0.1s;
+}
+.coord-row:hover { background:rgba(0,212,170,0.05); }
+.coord-row.sel { background:rgba(0,212,170,0.1); }
+.pt-badge {
+  width:22px; height:22px; border-radius:50%; background:var(--primary);
+  color:var(--bg-dark); display:flex; align-items:center; justify-content:center;
+  font-size:10px; font-weight:700; font-family:var(--font); flex-shrink:0;
+}
+.pt-badge.sel { background:var(--accent); }
+.coord-val { font-family:var(--mono); font-size:12px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.empty-msg { padding:24px 16px; color:var(--text-dim); font-size:13px; text-align:center; }
+
+/* Saved items */
+.saved-item { padding:12px 16px; border-bottom:1px solid rgba(0,212,170,0.05); }
+.si-name { font-weight:700; font-size:15px; color:var(--text-bright); }
+.si-meta { font-family:var(--mono); font-size:10px; color:var(--text-dim); margin-top:2px; }
+.si-area { font-family:var(--mono); font-size:12px; color:var(--primary); font-weight:600; }
+.si-acres { font-family:var(--mono); font-size:10px; color:var(--text-dim); }
+.si-btns { display:flex; gap:6px; margin-top:8px; }
+.si-btn {
+  flex:1; padding:6px 0; border-radius:7px;
+  font-family:var(--font); font-weight:600; font-size:12px; letter-spacing:0.04em;
+  cursor:pointer; transition:all 0.12s;
+}
+.si-btn-load { background:rgba(0,212,170,0.12); border:1px solid rgba(0,212,170,0.3); color:var(--primary); }
+.si-btn-load:hover { background:rgba(0,212,170,0.22); }
+.si-btn-exp { background:rgba(255,215,0,0.1); border:1px solid rgba(255,215,0,0.3); color:var(--accent2); }
+.si-btn-exp:hover { background:rgba(255,215,0,0.2); }
+.si-btn-del { background:rgba(255,71,87,0.1); border:1px solid rgba(255,71,87,0.3); color:var(--danger); }
+.si-btn-del:hover { background:rgba(255,71,87,0.2); }
+
+/* Save modal */
+#save-modal {
+  position:fixed; inset:0; z-index:2000;
+  background:rgba(0,0,0,0.72); display:none;
+  align-items:center; justify-content:center; padding:16px;
+  animation:fadeIn 0.15s ease;
+}
+.modal-box {
+  background:var(--bg-card); border:1px solid var(--border-bright);
+  border-radius:16px; padding:20px; width:100%; max-width:340px;
+  box-shadow:var(--shadow),var(--shadow-glow);
+}
+.modal-title { display:flex; align-items:center; gap:8px; margin-bottom:16px; }
+.modal-h { font-weight:700; font-size:18px; color:var(--primary); letter-spacing:0.04em; }
+.modal-info {
+  background:rgba(0,212,170,0.07); border:1px solid var(--border);
+  border-radius:10px; padding:10px 14px; margin-bottom:16px;
+  display:flex; justify-content:space-between;
+}
+.mi-lbl { font-family:var(--mono); font-size:11px; color:var(--text-dim); }
+.mi-val { font-family:var(--mono); font-size:14px; color:var(--primary); font-weight:600; }
+.form-lbl { font-size:12px; font-weight:600; color:var(--text-dim); letter-spacing:0.07em; text-transform:uppercase; margin-bottom:6px; display:block; }
+.name-input {
+  width:100%; background:rgba(0,212,170,0.05); border:1px solid var(--border-bright);
+  border-radius:10px; padding:10px 14px; color:var(--text);
+  font-family:var(--font); font-size:15px; outline:none; margin-bottom:16px;
+}
+.name-input:focus { border-color:var(--primary); }
+.modal-btns { display:flex; gap:8px; }
+.btn-cancel {
+  flex:1; padding:10px; background:transparent; border:1px solid var(--border);
+  border-radius:10px; color:var(--text-dim); font-family:var(--font);
+  font-weight:600; font-size:14px; cursor:pointer;
+}
+.btn-save {
+  flex:2; padding:10px; background:var(--primary); border:none;
+  border-radius:10px; color:var(--bg-dark); font-family:var(--font);
+  font-weight:700; font-size:14px; cursor:pointer; letter-spacing:0.04em;
+}
+.btn-save:hover { background:var(--primary-dark); }
+
+/* Hint */
+#hint {
+  position:absolute; bottom:80px; left:50%; transform:translateX(-50%);
+  background:rgba(10,14,26,0.85); border:1px solid rgba(0,212,170,0.28);
+  border-radius:10px; padding:10px 18px; color:rgba(232,244,240,0.65);
+  font-family:var(--font); font-size:14px; letter-spacing:0.03em;
+  pointer-events:none; z-index:900; white-space:nowrap;
+  animation:fadeIn 0.4s ease;
+}
+
+/* Spinner */
+.spinner {
+  display:inline-block; width:14px; height:14px;
+  border:2px solid rgba(0,212,170,0.3); border-top-color:var(--primary);
+  border-radius:50%; animation:spin 0.7s linear infinite;
+}
+
+@keyframes fadeIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:translateY(0)} }
+@keyframes slideUp { from{transform:translateY(100%);opacity:0} to{transform:translateY(0);opacity:1} }
+@keyframes spin { to{transform:rotate(360deg)} }
+
+::-webkit-scrollbar { width:4px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border-bright); border-radius:2px; }
+</style>
+</head>
+<body>
+
+<!-- Map -->
+<div id="map"></div>
+
+<!-- Top bar -->
+<div id="topbar">
+  <button class="icon-btn" id="menu-btn" title="Menu" onclick="toggleMenu()">
+    <svg width="18" height="14" viewBox="0 0 18 14"><rect y="0" width="18" height="2" rx="1" fill="currentColor"/><rect y="6" width="18" height="2" rx="1" fill="currentColor"/><rect y="12" width="18" height="2" rx="1" fill="currentColor"/></svg>
+  </button>
+
+  <div id="search-wrap">
+    <div id="search-box">
+      <span id="search-icon">🔍</span>
+      <input id="search-input" type="text" placeholder="Search address or place..." autocomplete="off" />
+      <button id="search-clear" onclick="clearSearch()" style="display:none">×</button>
+    </div>
+    <div id="search-results"></div>
+  </div>
+
+  <div id="layer-wrap">
+    <button class="icon-btn" id="layer-btn" title="Map type" onclick="toggleLayerMenu()">🗺️</button>
+    <div id="layer-dropdown">
+      <div class="layer-item active" data-layer="street" onclick="setLayer('street')">🗺️ Street</div>
+      <div class="layer-item" data-layer="satellite" onclick="setLayer('satellite')">🛰️ Satellite</div>
+      <div class="layer-item" data-layer="hybrid" onclick="setLayer('hybrid')">🌍 Hybrid</div>
+    </div>
+  </div>
+</div>
+
+<!-- Right tool panel -->
+<div id="tools">
+  <button class="tool-btn warn" id="btn-undo" onclick="undoPoint()" disabled title="Undo last point">
+    <span>↩</span><span class="tlbl">UNDO</span>
+  </button>
+  <button class="tool-btn danger" id="btn-delete" onclick="deleteSelected()" disabled title="Delete selected point">
+    <span>🗑</span><span class="tlbl">DEL</span>
+  </button>
+  <button class="tool-btn danger" id="btn-clear" onclick="clearAll()" disabled title="Clear all">
+    <span>✕</span><span class="tlbl">CLEAR</span>
+  </button>
+  <div class="tool-sep"></div>
+  <button class="tool-btn primary" id="btn-save" onclick="openSaveModal()" disabled title="Save measurement">
+    <span>💾</span><span class="tlbl">SAVE</span>
+  </button>
+  <button class="tool-btn" id="btn-coords" onclick="toggleCoords()" title="Coordinates">
+    <span>📋</span><span class="tlbl">COORDS</span>
+  </button>
+  <button class="tool-btn gold" id="btn-saved" onclick="toggleSaved()" title="Saved">
+    <span>📁</span><span class="tlbl">SAVED</span>
+  </button>
+</div>
+
+<!-- Measurement panel -->
+<div id="measure-panel">
+  <div class="mp-header">
+    <span style="color:var(--primary);font-size:14px">◈</span>
+    <span class="mp-title">Measurement</span>
+    <span class="mp-badge" id="mp-pts">0 pts</span>
+  </div>
+  <div class="metric"><span class="m-lbl">AREA</span><span class="m-val big" id="mp-area">—</span></div>
+  <div class="metric"><span class="m-lbl">ACRES</span><span class="m-val" id="mp-acres">—</span></div>
+  <div class="metric"><span class="m-lbl">HECTARES</span><span class="m-val" id="mp-ha">—</span></div>
+  <div class="mp-sep"></div>
+  <div class="metric"><span class="m-lbl">PERIMETER</span><span class="m-val" id="mp-perim">—</span></div>
+</div>
+
+<!-- Hint -->
+<div id="hint">📍 Tap the map to add boundary points</div>
+
+<!-- Coord drawer -->
+<div id="coord-drawer">
+  <div class="drawer-header">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span>📍</span>
+      <span class="drawer-title" style="color:var(--primary)">Coordinates</span>
+      <span class="mp-badge" id="cd-count" style="background:rgba(0,212,170,0.15);color:var(--primary)">0</span>
+    </div>
+    <button class="drawer-close" onclick="closeCoords()">×</button>
+  </div>
+  <div class="coord-head">
+    <span class="ch">#</span>
+    <span class="ch">LATITUDE</span>
+    <span class="ch">LONGITUDE</span>
+  </div>
+  <div class="drawer-body" id="coord-list"></div>
+</div>
+
+<!-- Saved drawer -->
+<div id="saved-drawer">
+  <div class="drawer-header">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span>📁</span>
+      <span class="drawer-title" style="color:var(--accent2)">Saved Measurements</span>
+      <span id="saved-count" style="background:rgba(255,215,0,0.12);color:var(--accent2);border-radius:6px;padding:1px 7px;font-size:11px;font-weight:700;font-family:var(--mono)">0</span>
+    </div>
+    <button class="drawer-close" onclick="closeSaved()">×</button>
+  </div>
+  <div class="drawer-body" id="saved-list"></div>
+</div>
+
+<!-- Save modal -->
+<div id="save-modal" onclick="closeSaveModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-title">
+      <span style="font-size:20px">💾</span>
+      <span class="modal-h">Save Measurement</span>
+    </div>
+    <div class="modal-info">
+      <div><div class="mi-lbl">AREA</div><div class="mi-val" id="modal-area">—</div></div>
+      <div style="text-align:right"><div class="mi-lbl">POINTS</div><div class="mi-val" id="modal-pts" style="color:var(--text)">0</div></div>
+    </div>
+    <label class="form-lbl">Measurement Name</label>
+    <input class="name-input" id="mname-input" type="text" />
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="closeSaveModal()">Cancel</button>
+      <button class="btn-save" onclick="doSave()">Save Measurement</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  STATE
+// ============================================================
+let points = [];         // {id, lat, lng, label}
+let selectedId = null;
+let currentLayer = 'street';
+let coordOpen = false;
+let savedOpen = false;
+let debounceTimer = null;
+let searchActive = false;
+let measurements = JSON.parse(localStorage.getItem('gps_lmp_v2') || '[]');
+
+// Map objects
+let map, baseTile, labelTile;
+const markers = new Map();   // id → L.Marker
+let polygon = null;
+let polyline = null;
+const distLabels = [];
+const angleLabels = [];
+
+// ============================================================
+//  MAP INIT
+// ============================================================
+function initMap() {
+  map = L.map('map', { center:[28.4595,77.0266], zoom:14, zoomControl:false, attributionControl:true });
+  baseTile = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution:'© OpenStreetMap contributors', maxZoom:21
+  }).addTo(map);
+  map.on('click', e => { addPoint(e.latlng.lat, e.latlng.lng); });
+}
+
+// ============================================================
+//  LAYERS
+// ============================================================
+const TILES = {
+  street: { url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attr:'© OpenStreetMap contributors' },
+  satellite: { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr:'© Esri' },
+  hybrid: { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr:'© Esri' },
+};
+const LABEL_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+
+function setLayer(layer) {
+  currentLayer = layer;
+  if (baseTile) map.removeLayer(baseTile);
+  if (labelTile) { map.removeLayer(labelTile); labelTile = null; }
+  const cfg = TILES[layer === 'hybrid' ? 'satellite' : layer];
+  baseTile = L.tileLayer(cfg.url, { attribution:cfg.attr, maxZoom:21 }).addTo(map);
+  if (layer === 'hybrid') {
+    labelTile = L.tileLayer(LABEL_URL, { opacity:0.5, maxZoom:21 }).addTo(map);
+  }
+  // Update UI
+  document.querySelectorAll('.layer-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.layer === layer);
+  });
+  const icons = { street:'🗺️', satellite:'🛰️', hybrid:'🌍' };
+  document.getElementById('layer-btn').textContent = icons[layer];
+  document.getElementById('layer-dropdown').style.display = 'none';
+}
+
+function toggleLayerMenu() {
+  const dd = document.getElementById('layer-dropdown');
+  dd.style.display = dd.style.display === 'block' ? 'none' : 'block';
+}
+
+// ============================================================
+//  SEARCH
+// ============================================================
+const searchInput = document.getElementById('search-input');
+const searchResults = document.getElementById('search-results');
+const searchClear = document.getElementById('search-clear');
+const searchIcon = document.getElementById('search-icon');
+
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.trim();
+  searchClear.style.display = q ? 'block' : 'none';
+  if (debounceTimer) clearTimeout(debounceTimer);
+  if (!q) { searchResults.style.display = 'none'; return; }
+  debounceTimer = setTimeout(() => geocode(q), 500);
+});
+
+searchInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') geocode(searchInput.value.trim());
+});
+
+async function geocode(q) {
+  if (!q) return;
+  searchIcon.innerHTML = '<span class="spinner"></span>';
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=5&addressdetails=1`;
+    const r = await fetch(url, { headers:{ 'User-Agent':'GPSLandMeasurePro/1.0', 'Accept-Language':'en' } });
+    const data = await r.json();
+    renderResults(data.slice(0,5));
+  } catch(e) {
+    searchResults.innerHTML = '<div class="sr-item" style="color:var(--text-dim)">Search unavailable. Check connection.</div>';
+    searchResults.style.display = 'block';
+  } finally {
+    searchIcon.textContent = '🔍';
+  }
+}
+
+function renderResults(results) {
+  if (!results.length) {
+    searchResults.innerHTML = '<div class="sr-item" style="color:var(--text-dim)">No results found</div>';
+    searchResults.style.display = 'block';
+    return;
+  }
+  searchResults.innerHTML = results.map((r,i) => {
+    const parts = r.display_name.split(',');
+    return `<div class="sr-item" onclick="selectResult(${r.lat},${r.lon},'${escQ(parts[0])}')">
+      <div class="sr-name">${escH(parts[0])}</div>
+      <div class="sr-sub">${escH(parts.slice(1,3).join(',').trim())}</div>
+    </div>`;
+  }).join('');
+  searchResults.style.display = 'block';
+}
+
+function selectResult(lat, lon, name) {
+  map.flyTo([lat, lon], 17, { duration:1.2 });
+  searchInput.value = name;
+  searchResults.style.display = 'none';
+}
+
+function clearSearch() {
+  searchInput.value = '';
+  searchResults.style.display = 'none';
+  searchClear.style.display = 'none';
+}
+
+// ============================================================
+//  POINTS & DRAWING
+// ============================================================
+function uid() { return Math.random().toString(36).slice(2,10); }
+
+function addPoint(lat, lng) {
+  const id = uid();
+  points.push({ id, lat, lng, label: points.length + 1 });
+  selectedId = null;
+  renderAll();
+}
+
+function undoPoint() {
+  if (!points.length) return;
+  const removed = points.pop();
+  const m = markers.get(removed.id);
+  if (m) { map.removeLayer(m); markers.delete(removed.id); }
+  selectedId = null;
+  renderAll();
+}
+
+function deleteSelected() {
+  if (!selectedId) return;
+  const m = markers.get(selectedId);
+  if (m) { map.removeLayer(m); markers.delete(selectedId); }
+  points = points.filter(p => p.id !== selectedId).map((p,i) => ({...p, label:i+1}));
+  selectedId = null;
+  renderAll();
+}
+
+function clearAll() {
+  points = [];
+  selectedId = null;
+  markers.forEach(m => map.removeLayer(m));
+  markers.clear();
+  renderAll();
+}
+
+function selectPoint(id) {
+  selectedId = selectedId === id ? null : id;
+  renderAll();
+}
+
+function renderAll() {
+  renderMarkers();
+  renderPolygon();
+  renderDistanceLabels();
+  renderAngleLabels();
+  updateUI();
+}
+
+function renderMarkers() {
+  const currentIds = new Set(points.map(p => p.id));
+  // Remove stale
+  [...markers.keys()].forEach(id => {
+    if (!currentIds.has(id)) { map.removeLayer(markers.get(id)); markers.delete(id); }
+  });
+  // Add / update
+  points.forEach(p => {
+    const isSel = p.id === selectedId;
+    const icon = L.divIcon({
+      className:'',
+      html:`<div class="mm${isSel?' sel':''}">` + p.label + `</div>`,
+      iconSize:[28,28], iconAnchor:[14,14]
+    });
+    if (markers.has(p.id)) {
+      markers.get(p.id).setLatLng([p.lat,p.lng]).setIcon(icon);
+    } else {
+      const mk = L.marker([p.lat,p.lng],{ icon, zIndexOffset:1000 }).addTo(map);
+      mk.on('click', e => { L.DomEvent.stopPropagation(e); selectPoint(p.id); });
+      markers.set(p.id, mk);
+    }
+  });
+}
+
+function renderPolygon() {
+  if (polygon) { map.removeLayer(polygon); polygon = null; }
+  if (polyline) { map.removeLayer(polyline); polyline = null; }
+  if (points.length >= 3) {
+    polygon = L.polygon(points.map(p=>[p.lat,p.lng]), {
+      color:'#00d4aa', weight:2.5, opacity:0.9,
+      fillColor:'#00d4aa', fillOpacity:0.1
+    }).addTo(map);
+  } else if (points.length === 2) {
+    polyline = L.polyline(points.map(p=>[p.lat,p.lng]), {
+      color:'#00d4aa', weight:2.5, opacity:0.9, dashArray:'6 4'
+    }).addTo(map);
+  }
+}
+
+function renderDistanceLabels() {
+  distLabels.forEach(l => map.removeLayer(l));
+  distLabels.length = 0;
+  if (points.length < 2) return;
+  const n = points.length;
+  const count = points.length >= 3 ? n : n - 1;
+  for (let i = 0; i < count; i++) {
+    const a = points[i], b = points[(i+1)%n];
+    if (i === n-1 && n < 3) break;
+    const dist = haversine(a.lat,a.lng,b.lat,b.lng);
+    const midLat = (a.lat+b.lat)/2, midLng = (a.lng+b.lng)/2;
+    const lbl = L.marker([midLat,midLng], {
+      icon: L.divIcon({ className:'dist-lbl', html:fmtDist(dist), iconAnchor:[20,10] }),
+      interactive:false, zIndexOffset:500
+    }).addTo(map);
+    distLabels.push(lbl);
+  }
+}
+
+function renderAngleLabels() {
+  angleLabels.forEach(l => map.removeLayer(l));
+  angleLabels.length = 0;
+  if (points.length < 3) return;
+  const n = points.length;
+  for (let i = 0; i < n; i++) {
+    const prev = points[(i-1+n)%n], curr = points[i], next = points[(i+1)%n];
+    const v1 = { x:prev.lng-curr.lng, y:prev.lat-curr.lat };
+    const v2 = { x:next.lng-curr.lng, y:next.lat-curr.lat };
+    const dot = v1.x*v2.x+v1.y*v2.y;
+    const mag = Math.sqrt((v1.x*v1.x+v1.y*v1.y)*(v2.x*v2.x+v2.y*v2.y));
+    if (mag === 0) continue;
+    const ang = Math.round(Math.acos(Math.max(-1,Math.min(1,dot/mag)))*180/Math.PI*10)/10;
+    const lbl = L.marker([curr.lat,curr.lng], {
+      icon: L.divIcon({ className:'ang-lbl', html:`${ang}°`, iconAnchor:[-6,22] }),
+      interactive:false, zIndexOffset:400
+    }).addTo(map);
+    angleLabels.push(lbl);
+  }
+}
+
+// ============================================================
+//  GEOMETRY
+// ============================================================
+function haversine(lat1,lng1,lat2,lng2) {
+  const R=6371000, rad=Math.PI/180;
+  const dLat=(lat2-lat1)*rad, dLng=(lng2-lng1)*rad;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*rad)*Math.cos(lat2*rad)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+function calcArea() {
+  if (points.length < 3) return { area:0, acres:0, ha:0 };
+  try {
+    const coords = [...points.map(p=>[p.lng,p.lat]),[points[0].lng,points[0].lat]];
+    const poly = turf.polygon([coords]);
+    const area = turf.area(poly);
+    return { area, acres:area/4046.856, ha:area/10000 };
+  } catch(e) { return { area:0, acres:0, ha:0 }; }
+}
+
+function calcPerimeter() {
+  if (points.length < 2) return 0;
+  let total = 0;
+  const n = points.length;
+  for (let i = 0; i < n; i++) {
+    const a=points[i], b=points[(i+1)%n];
+    if (i===n-1 && n<3) break;
+    total += haversine(a.lat,a.lng,b.lat,b.lng);
+  }
+  return total;
+}
+
+function fmtDist(m) {
+  if (m >= 1000) return `${(m/1000).toFixed(2)} km`;
+  if (m >= 1) return `${m.toFixed(1)} m`;
+  return `${(m*100).toFixed(0)} cm`;
+}
+
+function fmtArea(sqm) {
+  if (sqm >= 1000000) return `${(sqm/1000000).toFixed(4)} km²`;
+  if (sqm >= 10000) return `${(sqm/10000).toFixed(4)} ha`;
+  return `${sqm.toFixed(2)} m²`;
+}
+
+// ============================================================
+//  UI UPDATE
+// ============================================================
+function updateUI() {
+  const n = points.length;
+  const hasPoints = n > 0;
+  const hasSel = !!selectedId;
+
+  document.getElementById('btn-undo').disabled = !hasPoints;
+  document.getElementById('btn-delete').disabled = !hasSel;
+  document.getElementById('btn-clear').disabled = !hasPoints;
+  document.getElementById('btn-save').disabled = !hasPoints;
+
+  document.getElementById('hint').style.display = hasPoints ? 'none' : 'block';
+
+  // Measurement panel
+  const panel = document.getElementById('measure-panel');
+  if (n >= 2) {
+    panel.style.display = 'block';
+    const { area, acres, ha } = calcArea();
+    const perim = calcPerimeter();
+    document.getElementById('mp-pts').textContent = `${n} pts`;
+    document.getElementById('mp-area').textContent = fmtArea(area);
+    document.getElementById('mp-acres').textContent = `${acres.toFixed(4)} ac`;
+    document.getElementById('mp-ha').textContent = `${ha.toFixed(4)} ha`;
+    document.getElementById('mp-perim').textContent = fmtDist(perim);
+  } else {
+    panel.style.display = 'none';
+  }
+
+  // Coord drawer
+  if (coordOpen) renderCoordList();
+
+  // Close drawers if needed
+  if (!hasPoints && coordOpen) closeCoords();
+}
+
+function renderCoordList() {
+  document.getElementById('cd-count').textContent = points.length;
+  const list = document.getElementById('coord-list');
+  if (!points.length) {
+    list.innerHTML = '<div class="empty-msg">No points added yet</div>';
+    return;
+  }
+  list.innerHTML = points.map(p => `
+    <div class="coord-row ${p.id===selectedId?'sel':''}" onclick="selectPoint('${p.id}')">
+      <div class="pt-badge ${p.id===selectedId?'sel':''}">${p.label}</div>
+      <span class="coord-val">${p.lat.toFixed(7)}</span>
+      <span class="coord-val">${p.lng.toFixed(7)}</span>
+    </div>
+  `).join('');
+}
+
+// ============================================================
+//  DRAWERS
+// ============================================================
+function toggleCoords() {
+  coordOpen = !coordOpen;
+  if (savedOpen) closeSaved();
+  const el = document.getElementById('coord-drawer');
+  el.style.display = coordOpen ? 'flex' : 'none';
+  document.getElementById('btn-coords').classList.toggle('active', coordOpen);
+  if (coordOpen) renderCoordList();
+}
+
+function closeCoords() {
+  coordOpen = false;
+  document.getElementById('coord-drawer').style.display = 'none';
+  document.getElementById('btn-coords').classList.remove('active');
+}
+
+function toggleSaved() {
+  savedOpen = !savedOpen;
+  if (coordOpen) closeCoords();
+  const el = document.getElementById('saved-drawer');
+  el.style.display = savedOpen ? 'flex' : 'none';
+  document.getElementById('btn-saved').classList.toggle('active', savedOpen);
+  if (savedOpen) renderSavedList();
+}
+
+function closeSaved() {
+  savedOpen = false;
+  document.getElementById('saved-drawer').style.display = 'none';
+  document.getElementById('btn-saved').classList.remove('active');
+}
+
+function renderSavedList() {
+  const list = document.getElementById('saved-list');
+  document.getElementById('saved-count').textContent = measurements.length;
+  if (!measurements.length) {
+    list.innerHTML = '<div class="empty-msg">No saved measurements yet.<br><span style="font-size:11px;opacity:0.6">Draw a boundary and tap Save.</span></div>';
+    return;
+  }
+  list.innerHTML = [...measurements].reverse().map(m => `
+    <div class="saved-item">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div class="si-name">${escH(m.name)}</div>
+          <div class="si-meta">${new Date(m.timestamp).toLocaleDateString()} · ${m.points.length} points</div>
+        </div>
+        <div style="text-align:right">
+          <div class="si-area">${fmtArea(m.area)}</div>
+          <div class="si-acres">${m.acres.toFixed(3)} acres</div>
+        </div>
+      </div>
+      <div class="si-btns">
+        <button class="si-btn si-btn-load" onclick="loadMeasurement('${m.id}')">Load</button>
+        <button class="si-btn si-btn-exp" onclick="exportMeasurement('${m.id}')">Export</button>
+        <button class="si-btn si-btn-del" onclick="deleteMeasurement('${m.id}')">Delete</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ============================================================
+//  SAVE / EXPORT
+// ============================================================
+function openSaveModal() {
+  if (!points.length) return;
+  const { area, acres } = calcArea();
+  document.getElementById('modal-area').textContent = fmtArea(area);
+  document.getElementById('modal-pts').textContent = points.length;
+  const d = new Date();
+  document.getElementById('mname-input').value = `Plot ${d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'})}`;
+  document.getElementById('save-modal').style.display = 'flex';
+  setTimeout(() => document.getElementById('mname-input').focus(), 100);
+}
+
+function closeSaveModal() {
+  document.getElementById('save-modal').style.display = 'none';
+}
+
+document.getElementById('mname-input').addEventListener('keydown', e => { if (e.key==='Enter') doSave(); });
+
+function doSave() {
+  const name = document.getElementById('mname-input').value.trim();
+  if (!name) return;
+  const { area, acres, ha } = calcArea();
+  const perim = calcPerimeter();
+  const m = {
+    id: uid(), name, points: JSON.parse(JSON.stringify(points)),
+    area, acres, ha, perimeter: perim, timestamp: Date.now()
+  };
+  measurements.push(m);
+  localStorage.setItem('gps_lmp_v2', JSON.stringify(measurements));
+  closeSaveModal();
+  if (savedOpen) renderSavedList();
+}
+
+function loadMeasurement(id) {
+  const m = measurements.find(x=>x.id===id);
+  if (!m) return;
+  // Clear existing
+  markers.forEach(mk => map.removeLayer(mk)); markers.clear();
+  if (polygon) { map.removeLayer(polygon); polygon=null; }
+  if (polyline) { map.removeLayer(polyline); polyline=null; }
+  distLabels.forEach(l=>map.removeLayer(l)); distLabels.length=0;
+  angleLabels.forEach(l=>map.removeLayer(l)); angleLabels.length=0;
+  points = JSON.parse(JSON.stringify(m.points));
+  selectedId = null;
+  renderAll();
+  if (points.length) {
+    const midLat=points.reduce((a,p)=>a+p.lat,0)/points.length;
+    const midLng=points.reduce((a,p)=>a+p.lng,0)/points.length;
+    map.flyTo([midLat,midLng],16,{duration:1.2});
+  }
+  closeSaved();
+}
+
+function deleteMeasurement(id) {
+  measurements = measurements.filter(m=>m.id!==id);
+  localStorage.setItem('gps_lmp_v2', JSON.stringify(measurements));
+  renderSavedList();
+}
+
+function exportMeasurement(id) {
+  const m = measurements.find(x=>x.id===id);
+  if (!m) return;
+  const lines = [
+    '=================================================',
+    '         GPS LAND MEASURE PRO — FIELD REPORT',
+    '=================================================',
+    '',
+    `Name       : ${m.name}`,
+    `Date       : ${new Date(m.timestamp).toLocaleString()}`,
+    `ID         : ${m.id}`,
+    '',
+    '-------------------------------------------------',
+    '  MEASUREMENTS',
+    '-------------------------------------------------',
+    `Area       : ${m.area.toFixed(2)} m²`,
+    `           : ${m.ha.toFixed(4)} hectares`,
+    `           : ${m.acres.toFixed(4)} acres`,
+    `Perimeter  : ${m.perimeter.toFixed(2)} m`,
+    `           : ${(m.perimeter/1000).toFixed(4)} km`,
+    `Points     : ${m.points.length}`,
+    '',
+    '-------------------------------------------------',
+    '  BOUNDARY COORDINATES',
+    '-------------------------------------------------',
+    ...m.points.map((p,i)=>`  [${i+1}]  Lat: ${p.lat.toFixed(8)}   Lng: ${p.lng.toFixed(8)}`),
+    '',
+    '-------------------------------------------------',
+    '  Generated by GPS Land Measure Pro',
+    '=================================================',
+  ];
+  const blob = new Blob([lines.join('\n')],{type:'text/plain'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=`${m.name.replace(/[^a-z0-9]/gi,'_')}_${m.id}.txt`;
+  a.click(); URL.revokeObjectURL(url);
+}
+
+// ============================================================
+//  MISC UI
+// ============================================================
+function toggleMenu() {
+  // future: side menu
+}
+
+function escH(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escQ(s) {
+  return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"');
+}
+
+// Close dropdowns on outside click
+document.addEventListener('click', () => {
+  document.getElementById('search-results').style.display = 'none';
+  document.getElementById('layer-dropdown').style.display = 'none';
+});
+document.getElementById('search-wrap').addEventListener('click', e => e.stopPropagation());
+document.getElementById('layer-wrap').addEventListener('click', e => e.stopPropagation());
+
+// ============================================================
+//  BOOT
+// ============================================================
+initMap();
+updateUI();
+</script>
+</body>
+</html>
